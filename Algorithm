@@ -1,0 +1,637 @@
+#-*- coding: utf-8 -*-
+from judging.models import Dancer, Challenge, Judge
+import math
+
+__author__ = 'mihailnikolaev'
+
+
+class SkaitingAlgorithm:
+    def __init__(self, challenge):
+        self.challenge_name = Challenge.objects.filter(name__contains=challenge)
+        self.data = Dancer.objects.filter(challenges__in=self.challenge_name).filter(on_challenge=True)
+        for item in self.data:
+            item.points = 0
+            Dancer.save(item)
+        self.judges = Judge.objects.filter(available_challenges__in=self.challenge_name)
+        self.number_of_dances = self.challenge_name[0].available_dances.count()
+
+    def calculate(self, values):
+        first_res_table = []
+        dancer_table = [dancer.number for dancer in self.data]
+        table_of_marks = list()
+        for item in self.data:
+            if item.stage != 1: #if current stage is not final
+                print item.points
+                for estimate in item.judge_places[values * len(self.judges):(values + 1) * len(self.judges)]:
+                    if estimate == 'x' or estimate == 'X':
+                        item.points += 1
+                Dancer.save(item)
+            else:   #if estimate(place) is on final stage
+                for estimate in item.judge_marks[values * len(self.judges):(values + 1) * len(self.judges)]:
+                    table_of_marks.append(int(estimate))
+
+        if table_of_marks:
+            integr = 0
+            sum_places = 0
+            self.places_sum = list()
+            stro = ''
+            for dancer in range(len(self.data)): #for every dancer
+                row = table_of_marks[
+                      dancer * len(self.judges):len(self.judges) * (dancer + 1)] #row of every dancer marks
+                print row
+
+                for i in range(len(self.data)):
+                    if row.count(i + 1) > 0:
+                        sum_places += row.count(i + 1) * (i + 1)
+                    self.places_sum.append(sum_places)
+
+                for i in range(len(self.data)): #for every kind of mark
+                    for j in range(i + 1): #marks 1, 1-2, 1-3 and etc
+                        if row.count(j + 1) != 0:
+                            integr += row.count(j + 1)
+                    stro += str(integr)
+                    integr = 0
+                sum_places = 0
+                first_res_table.append(stro)
+                stro = ''
+
+            self.result_table = zip(dancer_table, first_res_table)
+            print self.result_table
+
+    def sumup_all_marks(self, number_of_accepted=0, count_up_equal_dancers=False):
+        getting_places = list()
+        for dancer in self.data:
+            getting_places.append([dancer.points, dancer.number])
+        getting_places.sort(reverse=True)
+        print getting_places
+
+        accepted_list = list()
+        for item in range(len(getting_places)-1):
+            if (item + 1 <= number_of_accepted) or (getting_places[item][0] == getting_places[item + 1][0] and count_up_equal_dancers):
+                accepted_list.append(getting_places[item][1])
+            else:
+                break
+        print 'accepted: ' + str(accepted_list)
+
+        for dancer in self.data:
+            if dancer.number not in accepted_list:
+                print dancer.number
+                dancer.on_challenge = False
+            else:
+                dancer.stage -= 1
+            Dancer.save(dancer)
+
+    def calculate_not_final_stages(self):
+        for i in range(self.number_of_dances):
+            self.calculate(i)
+        self.sumup_all_marks(5)
+
+    def calculate_for_all_dances(self):
+        self.new_algo_calculate_first_data()
+        print 'sum_places' + str(self.sum_places)
+        print self.all_places
+        print self.sum_of_each_places
+        sheet = [[0, z.number] for z in self.data]
+
+        for k in range(len(sheet)):
+            for i in range(len(self.sum_places)):
+                for j in self.sum_places[i]:
+                    if sheet[k][1] == j[1]:
+                        sheet[k][0] += j[0]
+
+        self.final = list()
+        self.final_marks = [i + 1 for i in range(len(self.data))]
+        sheet.sort()
+
+        self.check_repeats(sheet)
+
+        print self.final
+        return sheet
+
+    def deep_cheking(self, start=0, sheet=None, coeff=None, indexes=None):
+        print 'deep checking'
+        print 'indexes' + str(indexes)
+        if not indexes or not self.final_marks:
+            return
+
+        current_numbers = list()
+        current_coeffs = list()
+        current_number_of_places = list()
+        current_sums_of_places = list()
+        for i in indexes:
+            current_numbers.append(sheet[i][1])
+            for item in coeff:
+                if current_numbers[len(current_numbers) - 1] == item[0]:
+                    current_coeffs.append(item)
+            for item in self.all_places:
+                if current_numbers[len(current_numbers) - 1] == item[0]:
+                    current_number_of_places.append(item)
+            for item in self.sum_of_each_places:
+                if current_numbers[len(current_numbers) - 1] == item[0]:
+                    current_sums_of_places.append(item)
+        print current_numbers
+        print current_coeffs
+        print current_number_of_places
+        print current_sums_of_places
+
+        print 'start: ' + str(start)
+        for i in range(start, len(self.data)):
+            if not self.final_marks:
+                print 'no final marks'
+                return
+            comparison_list = list()
+            for item in range(len(current_coeffs)):
+                comparison_list.append([current_coeffs[item][1][i], current_coeffs[item][0]])
+            comparison_list.sort(reverse=True)
+
+            sorted_indexes = list()
+            for item in comparison_list:
+                for j in range(len(current_numbers)):
+                    if item[1] == current_numbers[j]:
+                        print 'i have done it!'
+                        sorted_indexes.append(indexes[j])
+            print 'sorted: ' + str(sorted_indexes)
+            print 'comparison list' + str(comparison_list)
+
+            maximum = -1
+            index = -1
+            for place in range(len(comparison_list)):
+                if comparison_list[place][0] > maximum:
+                    maximum = comparison_list[place][0]
+                    index = place
+
+            # indexes which will be compared in self.deep_seeking_in_places method
+            compare_indexes = list()
+            values = 0
+            for j in range(len(comparison_list)):
+                if comparison_list[j][0] == maximum:
+                    compare_indexes.append(sorted_indexes[j])
+                    values += 1
+            print 'compare indexes: ' + str(compare_indexes)
+            not_compare_indexes = list()
+            for j in range(len(sorted_indexes)):
+                if not compare_indexes.count(sorted_indexes[j]):
+                    not_compare_indexes.append(sorted_indexes[j])
+            print 'not compare: ' + str(not_compare_indexes)
+
+            print self.final_marks
+            if values == 1:
+                print 'values = 1'
+                self.final.append([self.final_marks[0], comparison_list[index][1]])
+                self.final_marks.remove(self.final_marks[0])
+                indexes.remove(sorted_indexes[index])
+                self.deep_cheking(i, sheet, coeff, indexes)
+                print 'indexes: ' + str(indexes)
+                return
+            else:
+                print 'more than 1'
+                self.deep_seeking_in_places(i, sheet, coeff, compare_indexes)
+                for i in indexes:
+                    indexes.remove(i)
+                if not_compare_indexes:
+                    self.deep_cheking(i, sheet, coeff, not_compare_indexes)
+                return
+
+    def deep_seeking_in_places(self, start=0, sheet=None, coeff=None, indexes=None):
+        print 'deep seeking in places'
+        print self.final_marks
+        table_of_sums_of_places = list()
+        for item in range(len(coeff)):
+            value = coeff[item][1][0]
+            table_of_sums_of_places.append([coeff[item][0], [0 for x in range(len(coeff[item][1]))]])
+            table_of_sums_of_places[item][1][0] = value
+            for i in range(1, len(coeff[item][1])):
+                value += (coeff[item][1][i] - coeff[item][1][i-1]) * (i + 1)
+                table_of_sums_of_places[item][1][i] = value
+        print table_of_sums_of_places
+
+        current_numbers = list()
+        current_coeffs = list()
+        current_number_of_places = list()
+        current_sums_of_places = list()
+        current_table_of_places = list()
+        for i in indexes:
+            current_numbers.append(sheet[i][1])
+            for item in coeff:
+                if current_numbers[len(current_numbers) - 1] == item[0]:
+                    current_coeffs.append(item)
+            for item in self.all_places:
+                if current_numbers[len(current_numbers) - 1] == item[0]:
+                    current_number_of_places.append(item)
+            for item in self.sum_of_each_places:
+                if current_numbers[len(current_numbers) - 1] == item[0]:
+                    current_sums_of_places.append(item)
+            for item in table_of_sums_of_places:
+                if current_numbers[len(current_numbers) - 1] == item[0]:
+                    current_table_of_places.append(item)
+        print current_numbers
+        print current_coeffs
+        print current_number_of_places
+        print current_sums_of_places
+        print current_table_of_places
+
+        #<---------------->
+        #ATTENTION HARDCODE (it depends on statistics)
+        #<---------------->
+        for counter in range(start, len(current_table_of_places[0][1])):
+            print str(current_table_of_places[0][1][counter]) + " ? " + str(current_table_of_places[1][1][counter])
+            if current_table_of_places[0][1][counter] == current_table_of_places[1][1][counter] == 0:
+                print 'equal and 0'
+                continue
+
+            if current_table_of_places[0][1][counter] == current_table_of_places[1][1][counter]:
+                print 'equal'
+                self.compare_between_number_of_places(counter, current_number_of_places, current_sums_of_places)
+                return
+
+            if current_table_of_places[0][1][counter] > current_table_of_places[1][1][counter]:
+                print 'more'
+                self.final.append([self.final_marks[0], current_table_of_places[0][0]])
+                self.final_marks.remove(self.final_marks[0])
+                self.final.append([self.final_marks[0], current_table_of_places[1][0]])
+                self.final_marks.remove(self.final_marks[0])
+            else:
+                print 'less'
+                self.final.append([self.final_marks[0], current_table_of_places[1][0]])
+                self.final_marks.remove(self.final_marks[0])
+                self.final.append([self.final_marks[0], current_table_of_places[0][0]])
+                self.final_marks.remove(self.final_marks[0])
+            return
+
+    def compare_between_number_of_places(self, start_ind=0, numb_of_places=None, sums_of_places=None):
+        print 'compare between'
+        print 'start index: ' + str(start_ind)
+        for i in range(start_ind, len(numb_of_places[0][1])):
+            if numb_of_places[0][1][i] == numb_of_places[1][1][i] == 0:
+                print 'equal and 0'
+                continue
+
+            #TODO deep compare of two dancers with current_number_of_places and so on
+            if numb_of_places[0][1][i] == numb_of_places[1][1][i]:
+                print 'equal'
+                self.the_deepest_checking(i, sums_of_places)
+
+            if numb_of_places[0][1][i] > numb_of_places[1][1][i]:
+                print 'more'
+                self.final.append([self.final_marks[0], numb_of_places[0][0]])
+                self.final_marks.remove(self.final_marks[0])
+                self.final.append([self.final_marks[0], numb_of_places[1][0]])
+                self.final_marks.remove(self.final_marks[0])
+                print self.final_marks
+
+            if numb_of_places[0][1][i] < numb_of_places[1][1][i]:
+                print 'less'
+                self.final.append([self.final_marks[0], numb_of_places[1][0]])
+                self.final_marks.remove(self.final_marks[0])
+                self.final.append([self.final_marks[0], numb_of_places[0][0]])
+                self.final_marks.remove(self.final_marks[0])
+                print self.final_marks
+            return
+
+    def the_deepest_checking(self, start=0, sums_of_places=None):
+        print 'the deepest checking'
+        print 'start index: ' + str(start)
+        for i in range(start, len(sums_of_places[0][1])):
+            if sums_of_places[0][1][i] == sums_of_places[1][1][i] == 0:
+                print 'equal and 0'
+                continue
+
+            #TODO deep compare of two dancers with current_number_of_places and so on
+            if sums_of_places[0][1][i] == sums_of_places[1][1][i]:
+                print 'equal'
+                pass
+
+            # there is different situation:
+            # for bigger sum last place
+            if sums_of_places[0][1][i] > sums_of_places[1][1][i]:
+                print 'more'
+                self.final.append([self.final_marks[0], sums_of_places[1][0]])
+                self.final_marks.remove(self.final_marks[0])
+                self.final.append([self.final_marks[0], sums_of_places[0][0]])
+                self.final_marks.remove(self.final_marks[0])
+                print self.final_marks
+
+            if sums_of_places[0][1][i] < sums_of_places[1][1][i]:
+                print 'less'
+                self.final.append([self.final_marks[0], sums_of_places[0][0]])
+                self.final_marks.remove(self.final_marks[0])
+                self.final.append([self.final_marks[0], sums_of_places[1][0]])
+                self.final_marks.remove(self.final_marks[0])
+                print self.final_marks
+            return
+
+    def check_repeats(self, sheet=None):
+        print 'check repeats'
+        coeff = [[x.number, [0 for i in range(len(self.data))]] for x in self.data]
+        for dance in range(self.number_of_dances):
+            for values in self.sum_places[dance]:
+                for item in range(len(self.data)):
+                    if coeff[item][0] == values[1]:
+                        if math.floor(values[0]) == values[0]:
+                            coeff[item][1][values[0] - 1] += 1
+                        else:
+                            coeff[item][1][int(values[0] - 0.5)] += 1
+        for item in range(len(coeff)):
+            for i in range(1, len(coeff[item][1])):
+                coeff[item][1][i] += coeff[item][1][i - 1]
+        print 'coeff: ' + str(coeff)
+        print 'sheet: ' + str(sheet)
+        not_allowed_list = list()
+        compared_list = list()
+        begin_index = 0
+        start_index = 0
+        for item in range(len(sheet)):
+            temp = list()
+            if not_allowed_list.count(item) == 0:
+                print 'item: ' + str(item)
+                temp.append(item)
+            for values in range(item + 1, len(sheet)):
+                if sheet[item][0] == sheet[values][0] and not_allowed_list.count(values) == 0:
+                    temp.append(values)
+                    not_allowed_list.append(values)
+            if len(temp) > 1:
+                print 'len of temp > 1: ' + str(temp)
+                compared_list.append(temp)
+                self.deep_cheking(item, sheet, coeff, [x for x in temp])
+                begin_index += 1
+            elif self.final_marks and temp:
+                print 'len temp = 1: ' + str(temp)
+                print begin_index
+                start_index += 1
+                self.final.append([self.final_marks[0], sheet[temp[0]][1]])
+                self.final_marks.remove(self.final_marks[0])
+
+        print compared_list
+
+    def new_algo_predefine(self):
+        print 'predefine'
+        self.places_dancers = list()
+        temp_arr = list()
+        for i in range(len(self.data)):
+            temp_arr.append(self.data[i].number)
+            temp_arr.append(self.places_sum[i * len(self.data):(i + 1) * len(self.data)])
+            self.places_dancers.append(temp_arr)
+            temp_arr = list()
+
+        print self.places_dancers
+
+    def new_algo_find_numbers(self):
+        print 'find numbers'
+        final_res = list()
+        result = list()
+        not_allowed_list = list()
+        qoute = int(len(self.judges) / 2) + 1
+        for i in range(len(self.places_dancers)):
+            temp = list()
+            for j in range(len(self.data)):
+                if int(self.result_table[j][1][i]) >= qoute and not not_allowed_list.count(j) > 0:
+                    not_allowed_list.append(j)
+                    temp.append(j)
+            if temp:
+                result.append(i)
+                result.append(temp)
+                final_res.append(result)
+                result = list()
+
+        return final_res
+
+    def new_algo_define_places_in_group(self, x=None):
+        print 'define places in group'
+        if len(x[1]) > 2:
+            x = self.new_algo_implicit_recursion_algo(x)
+
+        if not x:
+            return
+
+        available_places = [self.places[i] for i in range(len(x[1]))]
+        print available_places
+
+        if len(available_places) == 1:
+            t = list()
+            t.append(available_places[0])
+            t.append(self.places_dancers[x[1][0]][0])
+            self.table_of_places.append(t)
+            self.places.remove(available_places[0])
+            return
+
+        for i in range(x[0], len(self.data)):
+            print self.result_table[x[1][0]][1][i] + ' ? ' + self.result_table[x[1][1]][1][i]
+            if int(self.result_table[x[1][0]][1][i]) > int(self.result_table[x[1][1]][1][i]):
+                print self.result_table[x[1][0]][1][i] + ' > ' + self.result_table[x[1][1]][1][i]
+                for j in range(len(x[1])):
+                    t = list()
+                    t.append(available_places[j])
+                    t.append(self.result_table[x[1][j]][0])
+                    self.table_of_places.append(t)
+                    self.places.remove(available_places[j])
+                break
+            elif int(self.result_table[x[1][0]][1][i]) < int(self.result_table[x[1][1]][1][i]):
+                print self.result_table[x[1][0]][1][i] + ' < ' + self.result_table[x[1][1]][1][i]
+                for j in range(len(x[1])):
+                    t = list()
+                    t.append(available_places[j])
+                    t.append(self.result_table[x[1][1 - j]][0]) #magic of numbers: 1-j means reverse
+                    self.table_of_places.append(t)
+                    self.places.remove(available_places[j])
+                break
+
+            sum_temp = list()
+            temp = list()
+            for j in x[1]:
+                sum_temp.append(self.places_dancers[j][1][i])
+                sum_temp.append(self.places_dancers[j][0])
+                temp.append(sum_temp)
+                sum_temp = list()
+            temp.sort(reverse=True)
+            print temp
+
+            if i == len(self.data) - 1:
+                for j in range(len(available_places)):
+                    t = list()
+                    t.append(available_places[0] + 0.5)
+                    t.append(temp[j][1])
+                    self.table_of_places.append(t)
+                    self.places.remove(available_places[j])
+
+            if temp[0][0] == temp[1][0]:
+                continue
+            else:
+                if temp[0][0] > temp[1][0]:
+                    temp.reverse()
+                for j in range(len(temp)):
+                    t = list()
+                    t.append(available_places[j])
+                    t.append(temp[j][1])
+                    self.table_of_places.append(t)
+                    self.places.remove(available_places[j])
+                break
+
+    def new_algo_implicit_recursion_algo(self, x=None):
+        print 'implicit recursion'
+        available_places = [self.places[i] for i in range(len(x[1]))]
+        print available_places
+
+        for i in range(x[0], len(self.data)):
+            print int(self.result_table[x[1][0]][1][x[0]])
+            print int(self.result_table[x[1][1]][1][x[0]])
+            print int(self.result_table[x[1][2]][1][x[0]])
+            if int(self.result_table[x[1][0]][1][x[0]]) > int(self.result_table[x[1][1]][1][x[0]]) == int(
+                    self.result_table[x[1][2]][1][x[0]]):
+                print 'first'
+                x[0] += 1
+                t = list()
+                t.append(available_places[0])
+                t.append(self.result_table[x[1][0]][0])
+                self.table_of_places.append(t)
+                self.places.remove(available_places[0])
+                x[1].remove(x[1][0])
+                return x
+            elif int(self.result_table[x[1][0]][1][x[0]]) < int(self.result_table[x[1][1]][1][x[0]]) == int(
+                    self.result_table[x[1][2]][1][x[0]]):
+                print 'first'
+                x[0] += 1
+                t = list()
+                t.append(available_places[2])
+                t.append(self.result_table[x[1][0]][0])
+                self.table_of_places.append(t)
+                self.places.remove(available_places[2])
+                x[1].remove(x[1][0])
+                return x
+
+            if int(self.result_table[x[1][1]][1][x[0]]) > int(self.result_table[x[1][0]][1][x[0]]) == int(
+                    self.result_table[x[1][2]][1][x[0]]):
+                print 'second'
+                x[0] += 1
+                t = list()
+                t.append(available_places[0])
+                t.append(self.result_table[x[1][1]][0])
+                self.table_of_places.append(t)
+                self.places.remove(available_places[0])
+                x[1].remove(x[1][1])
+                return x
+            elif int(self.result_table[x[1][1]][1][x[0]]) < int(self.result_table[x[1][0]][1][x[0]]) == int(
+                    self.result_table[x[1][2]][1][x[0]]):
+                print 'second'
+                x[0] += 1
+                t = list()
+                t.append(available_places[2])
+                t.append(self.result_table[x[1][1]][0])
+                self.table_of_places.append(t)
+                self.places.remove(available_places[2])
+                x[1].remove(x[1][1])
+                return x
+
+            if int(self.result_table[x[1][2]][1][x[0]]) > int(self.result_table[x[1][1]][1][x[0]]) == int(
+                    self.result_table[x[1][0]][1][x[0]]):
+                print 'third'
+                x[0] += 1
+                t = list()
+                t.append(available_places[0])
+                t.append(self.result_table[x[1][2]][0])
+                self.table_of_places.append(t)
+                self.places.remove(available_places[0])
+                x[1].remove(x[1][2])
+                return x
+            elif int(self.result_table[x[1][2]][1][x[0]]) < int(self.result_table[x[1][1]][1][x[0]]) == int(
+                    self.result_table[x[1][0]][1][x[0]]):
+                print 'third'
+                x[0] += 1
+                t = list()
+                t.append(available_places[2])
+                t.append(self.result_table[x[1][2]][0])
+                self.table_of_places.append(t)
+                self.places.remove(available_places[2])
+                x[1].remove(x[1][2])
+                return x
+
+            #TODO if there are three different numbers
+
+            sum_temp = list()
+            temp = list()
+            for j in x[1]:
+                sum_temp.append(self.places_dancers[j][1][i])
+                sum_temp.append(self.places_dancers[j][0])
+                temp.append(sum_temp)
+                sum_temp = list()
+            sorted_indexes = list()
+            table = zip(x[1], temp)
+            temp.sort()
+            print temp, table
+
+            for i in range(len(temp)):
+                for j in range(len(table)):
+                    if table[j][1] == temp[i]:
+                        sorted_indexes.append(table[j][0])
+            print sorted_indexes
+
+            if (temp[0][0] == temp[1][0]) and (temp[1][0] == temp[2][0]):
+                x[0] += 1
+                continue
+
+            if temp[0][0] > temp[1][0] == temp[2][0]:
+                x[0] += 1
+                t = list()
+                t.append(available_places[0])
+                t.append(temp[0][1])
+                self.table_of_places.append(t)
+                self.places.remove(available_places[0])
+                x[1].remove(sorted_indexes[0])
+                break
+
+            if temp[2][0] < temp[1][0] == temp[0][0]:
+                x[0] += 1
+                t = list()
+                t.append(available_places[2])
+                t.append(temp[2][1])
+                self.table_of_places.append(t)
+                self.places.remove(available_places[2])
+                x[1].remove(sorted_indexes[2])
+                break
+
+            for j in range(len(temp)):
+                t = list()
+                t.append(available_places[j])
+                t.append(temp[j][1])
+                self.table_of_places.append(t)
+                self.places.remove(available_places[j])
+            x = list()
+            break
+
+        print x
+        return x
+
+    def new_algo_calculate_first_data(self):
+        #list for all places in all dances for all dancers
+        self.sum_places = list()
+        self.all_places = [[x.number, str(x.judge_marks)] for x in self.data]
+        self.sum_of_each_places = [[x.number, str(x.judge_marks)] for x in self.data]
+
+        for dancer in range(len(self.all_places)):
+            value = 0
+            ranges = list()
+            for i in range(len(self.data)):
+                value += self.all_places[dancer][1].count(str(i + 1))
+                ranges.append(value)
+            self.all_places[dancer][1] = ranges
+
+        for dancer in range(len(self.sum_of_each_places)):
+            value = 0
+            ranges = list()
+            for i in range(len(self.data)):
+                value += self.sum_of_each_places[dancer][1].count(str(i + 1)) * (i + 1)
+                ranges.append(value)
+            self.sum_of_each_places[dancer][1] = ranges
+
+        for dance in range(self.number_of_dances):
+            self.places = [x + 1 for x in range(len(self.data))]
+            self.table_of_places = list()
+            self.calculate(dance)
+            self.new_algo_predefine()
+            self.defined_indexes_and_dancers = self.new_algo_find_numbers()
+            print self.defined_indexes_and_dancers
+            for i in range(len(self.defined_indexes_and_dancers)):
+                self.new_algo_define_places_in_group(self.defined_indexes_and_dancers[i])
+            self.table_of_places.sort()
+            print self.table_of_places
+
+            self.sum_places.append(self.table_of_places)
